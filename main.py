@@ -1,47 +1,44 @@
+
 import os
-import requests
+import feedparser
 import time
-import schedule
-import logging
-from bs4 import BeautifulSoup
+import asyncio
 from telegram import Bot
+from datetime import datetime
 
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-CHANNEL_ID = os.getenv('CHANNEL_ID')
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+NEWS_SOURCES = os.getenv("NEWS_SOURCE", "").split(",")
+
 bot = Bot(token=TOKEN)
+sent_links = set() # عشان ما يكرر الاخبار
 
-logging.basicConfig(level=logging.INFO)
-
-def get_gold_news():
-    url = "https://www.gold.org/news-and-events"
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        news_item = soup.find('div', class_='news-item')
-        title = news_item.find('h3').text.strip()
-        link = "https://www.gold.org" + news_item.find('a')['href']
-        return f"📰 **خبر جديد عن الذهب**\n\n**{title}**\n\n{link}"
-    except Exception as e:
-        logging.error(f"Error fetching news: {e}")
-        return None
-
-def send_news():
-    news = get_gold_news()
-    if news:
+async def fetch_news():
+    for source in NEWS_SOURCES:
+        source = source.strip()
+        if not source: continue
         try:
-            bot.send_message(chat_id=CHANNEL_ID, text=news, parse_mode='Markdown')
-            logging.info("News sent successfully")
+            feed = feedparser.parse(source)
+            for entry in feed.entries[:3]: # يجيب اول 3 اخبار من كل مصدر
+                if entry.link not in sent_links:
+                    sent_links.add(entry.link)
+                    title = entry.title
+                    link = entry.link
+                    source_name = feed.feed.get('title', 'اخبار')
+                    message = f"**{source_name}**\n\n{title}\n\n{link}"
+                    await bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
+                    print(f"Sending news from {source_name}")
+                    await asyncio.sleep(5) # ينتظر 5 ثواني بين كل خبر
+                    return # يبعت خبر واحد بس كل ساعة
         except Exception as e:
-            logging.error(f"Error sending message: {e}")
+            print(f"Error with {source}: {e}")
 
-def main():
-    logging.info("Bot is starting...")
-    send_news()
-    schedule.every(30).minutes.do(send_news)
+async def main():
+    print("Bot started")
     while True:
-        schedule.run_pending()
-        time.sleep(1)
+        print(f"Checking news at {datetime.now()}")
+        await fetch_news()
+        await asyncio.sleep(3600) # ينتظر ساعة
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())    Update to multi-source bot
