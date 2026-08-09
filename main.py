@@ -1,43 +1,70 @@
 import os
-import feedparser
-import time
 import asyncio
+import feedparser
+import aiohttp
 from telegram import Bot
+from googletrans import Translator
 from datetime import datetime
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-NEWS_SOURCES = os.getenv("NEWS_SOURCE", "").split(",")
+TOKEN = os.getenv("TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID") # ايدي القناة
+LANG = os.getenv("LANG", "en") # اللغة ar
 
 bot = Bot(token=TOKEN)
-sent_links = set() # عشان ما يكرر الاخبار
+translator = Translator()
+seen_links = set()
 
-async def fetch_news():
-    for source in NEWS_SOURCES:
-        source = source.strip()
-        if not source: continue
+# مصادر اخبار اقتصادية و ذهب
+FEEDS = [
+    "https://www.cnbc.com/id/10000664/device/rss/rss.html", # CNBC Markets
+    "https://www.kitco.com/rss/rss.xml", # Kitco Gold
+    "https://feeds.reuters.com/reuters/businessNews" # Reuters Business
+]
+
+async def translate_text(text):
+    if LANG == "ar" and text:
         try:
-            feed = feedparser.parse(source)
-            for entry in feed.entries[:3]: # يجيب اول 3 اخبار من كل مصدر
-                if entry.link not in sent_links:
-                    sent_links.add(entry.link)
-                    title = entry.title
-                    link = entry.link
-                    source_name = feed.feed.get('title', 'اخبار')
-                    message = f"**{source_name}**\n\n{title}\n\n{link}"
+            translated = translator.translate(text, dest='ar')
+            return translated.text
+        except:
+            return text
+    return text
+
+async def send_news():
+    for url in FEEDS:
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:3]: # بجيب اخر 3 اخبار من كل مصدر
+            if entry.link not in seen_links:
+                seen_links.add(entry.link)
+                
+                title = await translate_text(entry.title)
+                summary = await translate_text(entry.summary[:300]) # باخد اول 300 حرف بس
+                source = entry.get("source", {}).get("title", "مصدر")
+                
+                message = f"**{title}**\n\n"
+                message += f"{summary}...\n\n"
+                message += f"**التأثير المحتمل**: "
+                if "gold" in entry.title.lower() or "ذهب" in title:
+                    message += "إيجابي للذهب"
+                else:
+                    message += "متابعة للاسواق"
+                message += f"\n**المصدر**: {source}"
+                message += f"\n#ذهب #اقتصاد"
+                
+                # ابعت على القناة
+                if CHANNEL_ID:
                     await bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
-                    print(f"Sending news from {source_name}")
-                    await asyncio.sleep(5) # ينتظر 5 ثواني بين كل خبر
-                    return # يبعت خبر واحد بس كل ساعة
-        except Exception as e:
-            print(f"Error with {source}: {e}")
+                
+                # ابعتلك انت كمان
+                # await bot.send_message(chat_id="حط_ايديك_هون", text=message, parse_mode="Markdown")
+                
+                await asyncio.sleep(2)
 
 async def main():
-    print("Bot started")
+    print("Bot started...")
     while True:
-        print(f"Checking news at {datetime.now()}")
-        await fetch_news()
-        await asyncio.sleep(3600) # ينتظر ساعة
+        await send_news()
+        await asyncio.sleep(600) # بفحص كل 10 دقايق
 
 if __name__ == "__main__":
-    asyncio.run(main(
+    asyncio.run(main())
