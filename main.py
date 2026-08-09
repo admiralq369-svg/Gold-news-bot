@@ -1,4 +1,3 @@
-
 import os
 import feedparser
 import time
@@ -41,4 +40,4 @@ async def main():
         await asyncio.sleep(3600) # ينتظر ساعة
 
 if __name__ == "__main__":
-    asyncio.run(main())    Update to multi-source bot
+    asyncio.run(main(
